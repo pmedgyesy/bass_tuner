@@ -14,9 +14,9 @@ end I2C_Controller;
 
 architecture Behavioral of I2C_Controller is
 
-    signal i2c_start : STD_LOGIC := '0';
-    signal i2c_done  : STD_LOGIC;
-    signal i2c_data  : STD_LOGIC_VECTOR(7 downto 0);
+    signal i2c_start    : STD_LOGIC := '0';
+    signal i2c_done     : STD_LOGIC;
+    signal i2c_data     : STD_LOGIC_VECTOR(7 downto 0);
     signal i2c_reg_addr : STD_LOGIC_VECTOR(7 downto 0);
 
     -- States for sending multiple I2C commands to configure the codec
@@ -29,9 +29,11 @@ begin
         if reset = '1' then
             state <= IDLE;
             done <= '0';
+            i2c_start <= '0';
         elsif rising_edge(clk) then
             case state is
                 when IDLE =>
+                    done <= '0';
                     if start = '1' then
                         -- Start configuration by sending the first I2C command
                         state <= SEND_PLL_CONFIG;
@@ -40,32 +42,35 @@ begin
                 when SEND_PLL_CONFIG =>
                     -- Send PLL lower byte configuration
                     i2c_start <= '1';
-                    i2c_reg_addr <= x"40"; -- Lower 8-bit address for PLL
-                    i2c_data <= x"03";     -- Example data for PLL lower byte
+                    i2c_reg_addr <= x"02"; -- Lower byte address for PLL control register
+                    i2c_data <= x"03";     -- Example data for PLL configuration
                     if i2c_done = '1' then
-                        state <= SEND_PLL_UPPER_BYTE; -- Move to the next state to send the upper byte
+                        i2c_start <= '0'; -- Deassert the start signal
+                        state <= SEND_PLL_UPPER_BYTE;
                     end if;
-                    
-                    when SEND_PLL_UPPER_BYTE =>
-                        -- Send PLL upper byte configuration
-                        i2c_start <= '1';
-                        i2c_reg_addr <= x"41"; -- Upper 8-bit address for PLL
-                        i2c_data <= x"00";     -- Example data for PLL upper byte
-                        if i2c_done = '1' then
-                            state <= SEND_ADC_CONFIG; -- Move to ADC config after PLL config
-                        end if;
-                    
+
+                when SEND_PLL_UPPER_BYTE =>
+                    -- Send PLL upper byte configuration
+                    i2c_start <= '1';
+                    i2c_reg_addr <= x"03"; -- Upper byte address for PLL control register
+                    i2c_data <= x"00";     -- Example data for upper byte
+                    if i2c_done = '1' then
+                        i2c_start <= '0'; -- Deassert the start signal
+                        state <= SEND_ADC_CONFIG;
+                    end if;
+
                 when SEND_ADC_CONFIG =>
                     -- Send I2C command to configure ADC
-                    i2c_start <= '1';  -- Start I2C transaction
-                    i2c_reg_addr <= x"18";  -- 8-bit ADC config register address
-                    i2c_data <= x"31";  -- 8-bit ADC enable and input gain data
+                    i2c_start <= '1';
+                    i2c_reg_addr <= x"18"; -- ADC configuration register
+                    i2c_data <= x"31";     -- ADC enable and input gain data
                     if i2c_done = '1' then
-                        state <= TRANSACTION_DONE;  -- Move to TRANSACTION_DONE state after ADC config
+                        i2c_start <= '0'; -- Deassert the start signal
+                        state <= TRANSACTION_DONE;
                     end if;
 
                 when TRANSACTION_DONE =>
-                    done <= '1'; -- Signal configuration done
+                    done <= '1'; -- Signal that the configuration is complete
                     state <= IDLE;
 
                 when others =>
@@ -80,11 +85,11 @@ begin
             clk => clk,
             reset => reset,
             start => i2c_start,
-            address => "0011010",  -- ADAU1761 address
+            address => "0011010",  -- ADAU1761 I2C address
             rw => '0',             -- Write operation
             reg_addr => i2c_reg_addr,
             data_in => i2c_data,
-            data_out => open,      -- Not needed for this
+            data_out => open,      -- Not needed for this configuration
             i2c_scl => i2c_scl,
             i2c_sda => i2c_sda,
             done => i2c_done
